@@ -75,6 +75,8 @@ pthread_mutex_t queue_lock;
 pthread_cond_t queue_cond;
 plugin_options_head_t *options_heads[MAX_PLUGINS];
 
+char pcapfilter[4096] = "\0";
+
 #define DeltaUSec(finish,start) \
  (long)( ((long)(finish.tv_sec - start.tv_sec)<<10) + (long)(finish.tv_nsec>>20) - (long)(start.tv_nsec>>20) )
 
@@ -84,7 +86,7 @@ usage(char *prgname)
 	fprintf(stderr, "DHCP relay. Yandex edition. 2007-2017.\n");
 	fprintf(stderr, "Version %s.\n", VERSION);
 	fprintf(stderr, "Usage:\n%s [-d] [-p<pidfile>] -f <config_file>\n", prgname);
-	fprintf(stderr, "or ISC compatible mode:\n%s [-d] [-p<pidfile>] -A <packet_size> -c <max_hops> -i <ifname>... <dhcp_server>...\n", prgname);
+	fprintf(stderr, "or ISC compatible mode:\n%s [-d] [-x \"<pcap filter>\"] [-p<pidfile>] -A <packet_size> -c <max_hops> -i <ifname>... <dhcp_server>...\n", prgname);
 	exit(EX_OK);
 }
 
@@ -210,8 +212,19 @@ open_interface(const char *iname)
 
 	if ((ifs[if_num]->cap = pcap_open_live(iname, max_packet_size, 0, 100, errbuf)) == NULL)
 		process_error(EX_RES, "pcap_open_live(%s): %s", iname, errbuf);
-	sprintf(filtstr, "udp and dst port bootps and not ether src %s",
-		ether_ntoa_r((struct ether_addr*)ifs[if_num]->mac, buf));
+	
+	if( strlen(pcapfilter) > 0 ){
+		sprintf(filtstr, "udp and dst port bootps and not ether src %s and %s",
+				ether_ntoa_r((struct ether_addr*)ifs[if_num]->mac, buf),
+				pcapfilter
+			);
+	}
+	else {
+		sprintf(filtstr, "udp and dst port bootps and not ether src %s",
+			ether_ntoa_r((struct ether_addr*)ifs[if_num]->mac, buf));
+	}
+	
+	
 	if (pcap_compile(ifs[if_num]->cap, &fp, filtstr, 0, 0) < 0)
 		process_error(EX_RES, "pcap_compile");
 	if (pcap_setfilter(ifs[if_num]->cap, &fp) < 0)
@@ -865,7 +878,7 @@ main(int argc, char *argv[])
 	strlcpy(prgname, argv[0], sizeof(prgname));
 	filename[0] = '\0';
 	STAILQ_INIT(&ip_binding_map_head);
-	while ((c = getopt(argc, argv, "A:c:df:hi:p:")) != -1) {
+	while ((c = getopt(argc, argv, "A:c:df:hi:p:x:")) != -1) {
 		switch (c) {
 		case 'A':
 			if (configured == 2)
@@ -901,6 +914,9 @@ main(int argc, char *argv[])
 			break;
 		case 'p':
 			strlcpy(filename, optarg, sizeof(filename));
+			break;
+		case 'x':
+			strlcpy(pcapfilter, optarg, sizeof(pcapfilter));
 			break;
 		case 'h':
 		default:
